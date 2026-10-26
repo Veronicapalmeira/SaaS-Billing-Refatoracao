@@ -46,4 +46,17 @@ class MoneyTest {
 
         assertEquals(0, BigDecimal.ZERO.compareTo(resultado.amount()));
     }
+@Test
+    void devePreservarValorPositivo() {
+        Money valor = Money.of(5.00);
+
+        Money resultado = valor.zeroIfNegative();
+
+        assertEquals(0, new BigDecimal("5.00").compareTo(resultado.amount()));
+    }
+
+    @Test
+    void deveRejeitarValorNulo() {
+        assertThrows(NullPointerException.class, () -> new Money(null));
+    }
 }
