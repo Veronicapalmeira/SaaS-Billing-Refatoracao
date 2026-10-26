@@ -2,7 +2,6 @@ package com.saas.billing;
 
 public record BillingCommand(
         String customerId,
-        String planType,
         Money basePrice,
         String signupDateStr,
         int overdueDays,

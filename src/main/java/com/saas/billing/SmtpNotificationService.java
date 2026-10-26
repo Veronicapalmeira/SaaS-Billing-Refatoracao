@@ -19,8 +19,7 @@ public class SmtpNotificationService implements NotificationService {
             emailSender.setSubject("Sua Fatura Mensal");
             emailSender.setMsg("Olá! Sua fatura foi processada no valor de R$ " + amount.amount().doubleValue());
             emailSender.addTo(recipientEmail);
-
-            // emailSender.send();
+            // O envio real permanece desativado, como no sistema legado.
         } catch (EmailException e) {
             throw new NotificationException("Erro ao preparar o e-mail para: " + recipientEmail, e);
         }
