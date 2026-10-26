@@ -1,3 +1,4 @@
+
 package com.saas.billing;
 
 import java.sql.Connection;
@@ -15,33 +16,43 @@ public class SubscriptionBillingService {
     private static final String DB_USER = "admin";
     private static final String DB_PASS = "admin123";
 
-    public List<String> processMonthlyBilling(String customerId, String planType, double basePrice, 
-                                             String signupDateStr, int overdueDays, String promoCode, 
-                                             boolean isNonProfit, String paymentCardToken) {
+    public List<String> processMonthlyBilling(BillingCommand command) {
+
+        String customerId = command.customerId();
+        String planType = command.planType();
+        double basePrice = command.basePrice().amount().doubleValue();
+        String signupDateStr = command.signupDateStr();
+        int overdueDays = command.overdueDays();
+        String promoCode = command.promoCode();
+        boolean isNonProfit = command.isNonProfit();
+        String paymentCardToken = command.paymentCardToken();
 
         List<String> logs = new ArrayList<>();
-        
+
         LocalDate signupDate = LocalDate.parse(signupDateStr);
         LocalDate today = LocalDate.now();
 
-        int monthsActive = (today.getYear() - signupDate.getYear()) * 12 + (today.getMonthValue() - signupDate.getMonthValue());
+        int monthsActive = (today.getYear() - signupDate.getYear()) * 12
+                + (today.getMonthValue() - signupDate.getMonthValue());
 
         double calculatedPrice = basePrice;
 
         if (monthsActive > 24) {
-            calculatedPrice = calculatedPrice - (basePrice * 0.15); // 15% após 2 anos
+            calculatedPrice = calculatedPrice - (basePrice * 0.15);
         } else if (monthsActive > 12) {
-            calculatedPrice = calculatedPrice - (basePrice * 0.10); // 10% após 1 ano
+            calculatedPrice = calculatedPrice - (basePrice * 0.10);
         }
 
         if (isNonProfit) {
-            calculatedPrice = calculatedPrice * 0.70; // 30% off para ONGs
+            calculatedPrice = calculatedPrice * 0.70;
         }
 
         if (promoCode != null && !promoCode.trim().isEmpty()) {
-            if (promoCode.equalsIgnoreCase("BLACKFRIDAY") && today.getMonthValue() == 11) {
+            if (promoCode.equalsIgnoreCase("BLACKFRIDAY")
+                    && today.getMonthValue() == 11) {
                 calculatedPrice = calculatedPrice - 30.0;
-            } else if (promoCode.equalsIgnoreCase("WELCOME10") && monthsActive <= 1) {
+            } else if (promoCode.equalsIgnoreCase("WELCOME10")
+                    && monthsActive <= 1) {
                 calculatedPrice = calculatedPrice * 0.90;
             }
         }
@@ -72,6 +83,7 @@ public class SubscriptionBillingService {
                 }
 
                 boolean paymentSuccess = false;
+
                 if (paymentCardToken != null && paymentCardToken.startsWith("tok_")) {
                     paymentSuccess = true;
                     logs.add("Pagamento processado com sucesso: R$ " + calculatedPrice);
@@ -93,6 +105,7 @@ public class SubscriptionBillingService {
                 emailSender.setSubject("Sua Fatura Mensal");
                 emailSender.setMsg("Olá! Sua fatura foi processada no valor de R$ " + calculatedPrice);
                 emailSender.addTo(email);
+
                 // emailSender.send();
 
                 logs.add("E-mail disparado para: " + email);
