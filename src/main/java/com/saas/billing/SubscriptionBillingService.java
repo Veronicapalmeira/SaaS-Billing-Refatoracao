@@ -1,20 +1,29 @@
 
 package com.saas.billing;
 
-import java.sql.Connection;
-import java.sql.DriverManager;
-import java.sql.PreparedStatement;
-import java.sql.ResultSet;
+import java.time.Clock;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
-import org.apache.commons.mail.SimpleEmail;
+import java.util.Objects;
+import java.util.Optional;
 
 public class SubscriptionBillingService {
 
-    private static final String DB_URL = "jdbc:postgresql://localhost:5432/saas_db";
-    private static final String DB_USER = "admin";
-    private static final String DB_PASS = "admin123";
+    private final CustomerRepository customerRepository;
+    private final PaymentGateway paymentGateway;
+    private final NotificationService notificationService;
+    private final Clock clock;
+
+    public SubscriptionBillingService(CustomerRepository customerRepository,
+                                      PaymentGateway paymentGateway,
+                                      NotificationService notificationService,
+                                      Clock clock) {
+        this.customerRepository = Objects.requireNonNull(customerRepository, "O repositório de clientes não pode ser nulo");
+        this.paymentGateway = Objects.requireNonNull(paymentGateway, "O gateway de pagamento não pode ser nulo");
+        this.notificationService = Objects.requireNonNull(notificationService, "O serviço de notificação não pode ser nulo");
+        this.clock = Objects.requireNonNull(clock, "O relógio não pode ser nulo");
+    }
 
     public List<String> processMonthlyBilling(BillingCommand command) {
 
@@ -30,7 +39,7 @@ public class SubscriptionBillingService {
         List<String> logs = new ArrayList<>();
 
         LocalDate signupDate = LocalDate.parse(signupDateStr);
-        LocalDate today = LocalDate.now();
+        LocalDate today = LocalDate.now(clock);
 
         int monthsActive = (today.getYear() - signupDate.getYear()) * 12
                 + (today.getMonthValue() - signupDate.getMonthValue());
@@ -67,51 +76,30 @@ public class SubscriptionBillingService {
             calculatedPrice = 0.0;
         }
 
-        try (Connection conn = DriverManager.getConnection(DB_URL, DB_USER, DB_PASS)) {
-            String sqlCustomer = "SELECT email, status FROM customers WHERE id = ?";
-            PreparedStatement stmt = conn.prepareStatement(sqlCustomer);
-            stmt.setString(1, customerId);
-            ResultSet rs = stmt.executeQuery();
+        Optional<Customer> customer = customerRepository.findById(customerId);
 
-            if (rs.next()) {
-                String email = rs.getString("email");
-                String status = rs.getString("status");
+        if (customer.isPresent()) {
+            String email = customer.get().email();
 
-                if (!"ACTIVE".equalsIgnoreCase(status)) {
-                    logs.add("Cliente inativo. Cobrança cancelada: " + customerId);
-                    return logs;
-                }
-
-                boolean paymentSuccess = false;
-
-                if (paymentCardToken != null && paymentCardToken.startsWith("tok_")) {
-                    paymentSuccess = true;
-                    logs.add("Pagamento processado com sucesso: R$ " + calculatedPrice);
-                } else {
-                    logs.add("Falha no pagamento do cartão para: " + customerId);
-                }
-
-                String sqlInvoice = "INSERT INTO invoices(customer_id, amount, status, created_at) VALUES (?, ?, ?, NOW())";
-                PreparedStatement stmtInvoice = conn.prepareStatement(sqlInvoice);
-                stmtInvoice.setString(1, customerId);
-                stmtInvoice.setDouble(2, calculatedPrice);
-                stmtInvoice.setString(3, paymentSuccess ? "PAID" : "FAILED");
-                stmtInvoice.executeUpdate();
-
-                SimpleEmail emailSender = new SimpleEmail();
-                emailSender.setHostName("smtp.empresa.com");
-                emailSender.setSmtpPort(587);
-                emailSender.setFrom("billing@empresa.com");
-                emailSender.setSubject("Sua Fatura Mensal");
-                emailSender.setMsg("Olá! Sua fatura foi processada no valor de R$ " + calculatedPrice);
-                emailSender.addTo(email);
-
-                // emailSender.send();
-
-                logs.add("E-mail disparado para: " + email);
+            if (!customer.get().isActive()) {
+                logs.add("Cliente inativo. Cobrança cancelada: " + customerId);
+                return logs;
             }
-        } catch (Exception e) {
-            logs.add("Erro fatal no processamento: " + e.getMessage());
+
+            Money amount = Money.of(calculatedPrice);
+            boolean paymentSuccess = paymentGateway.charge(paymentCardToken, amount);
+
+            if (paymentSuccess) {
+                logs.add("Pagamento processado com sucesso: R$ " + calculatedPrice);
+            } else {
+                logs.add("Falha no pagamento do cartão para: " + customerId);
+            }
+
+            customerRepository.saveInvoice(customerId, amount, paymentSuccess ? InvoiceStatus.PAID : InvoiceStatus.FAILED);
+
+            notificationService.sendInvoiceReceipt(email, amount);
+
+            logs.add("E-mail disparado para: " + email);
         }
 
         return logs;
